@@ -1,5 +1,10 @@
 const User = require(`../models/User`);
 const crypto = require(`crypto`);
+const { hashToken, verifyHashToken } = require(`../utils/auth.utils`);
+const jwt = require(`jsonwebtoken`);
+const { generateAccessToken, generateRefreshToken } = require(`../utils/token.utils`);
+const RefreshSchema = require(`../models/Refresh`);
+const { v4: uuidv4 } = require(`uuid`);
 
 const { transporter, sendEmail } = require(`../config/mail`);
 
@@ -20,7 +25,7 @@ const register = async (req, res) => {
             email: normalizeEmail(email),
             password,
             emailVerifiedToken,
-            emailVerifyExp: new Date(Date.now() + 5*60*60*1000)
+            emailVerifyExp: new Date(Date.now() + 5 * 60 * 1000)
         })
         await sendEmail(
             normalizeEmail(email),
@@ -29,7 +34,7 @@ const register = async (req, res) => {
             Welcome to our E-commerce platform!. Your account has been successfully created.
             We are excited to have you as part of our community. If you have any questions or need assistance,
             feel free to reach out to our support team.`
-         );
+        );
         await user.save();
         res.status(201).json({
             message: `User Registered Successfully`,
@@ -51,22 +56,22 @@ const register = async (req, res) => {
     }
 }
 
-const emailVerification = async(req, res)=>{
-    try{
+const emailVerification = async (req, res) => {
+    try {
         const { token } = req.query;
-        if(!token){
+        if (!token) {
             return res.status(400).json({
-                message:`Verification token is missing`
+                message: `Verification token is missing`
             })
         }
 
         const user = await User.findOne({
             emailVerifiedToken: token,
-            emailVerifyExp:{$gt: Date.now()}
+            emailVerifyExp: { $gt: Date.now() }
         })
-        if(!user){
+        if (!user) {
             return res.status(400).json({
-                message:`Invalid or expired verification token`
+                message: `Invalid or expired verification token`
             })
         }
         user.isEmailVerified = true;
@@ -79,23 +84,23 @@ const emailVerification = async(req, res)=>{
         })
 
 
-    } catch(error){
+    } catch (error) {
         console.error(`Error: ${error.message}`);
-        res.status(500).json({message: `Server Error`})
+        res.status(500).json({ message: `Server Error` })
     }
 }
 
-const reSendVerificationEmail = async(req, res)=>{
-    try{
+const reSendVerificationEmail = async (req, res) => {
+    try {
         const { email } = req.body;
 
-        const user = await User.findOne({email});
-        if(!user){
+        const user = await User.findOne({ email });
+        if (!user) {
             return res.status(400).json({
                 message: `User with email ${email} not found`
             })
         }
-        if(user.isEmailVerified){
+        if (user.isEmailVerified) {
             return res.status(400).json({
                 message: `Email is already verified`
             })
@@ -103,7 +108,7 @@ const reSendVerificationEmail = async(req, res)=>{
         const emailVerifiedToken = crypto.randomBytes(32).toString(`hex`);
 
         user.emailVerifiedToken = emailVerifiedToken;
-        user.emailVerifyExp = new Date(Date.now() + 5*60*1000);
+        user.emailVerifyExp = new Date(Date.now() + 5 * 60 * 1000);
 
         await user.save();
 
@@ -120,34 +125,34 @@ const reSendVerificationEmail = async(req, res)=>{
             If you did not request this, please ignore this email.`
         );
         return res.status(200).json({
-            message:`Verification email resent successfully`
+            message: `Verification email resent successfully`
         })
 
-    }catch(error){
+    } catch (error) {
         console.error(`Error: ${error.message}`);
         res.status(500).json({
-            message:`Server Error`
+            message: `Server Error`
         })
     }
 }
 
-const login = async(req,res)=>{
-    try{
-        const {email, password } = req.body;
+const login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
         const user = await User.findOne({
             email: normalizeEmail(email)
         }).select(`+password`);
-        if(!user || !user.isEmailVerified){
+        if (!user || !user.isEmailVerified) {
             return res.status(400).json({
-                message:`no user or email not verified`
+                message: `no user or email not verified`
             })
         }
-        if(password !== user.password){
+        if (password !== user.password) {
             return res.status(400).json({
-                message:`invalid password`
+                message: `invalid password`
             })
         }
-       
+
         await sendEmail(
             normalizeEmail(email),
             `Login Alert`,
@@ -157,19 +162,39 @@ const login = async(req,res)=>{
             Otherwise, we recommend changing your password immediately 
             and reviewing your account activity for any unauthorized access.`
         )
-         res.status(200).json({
-            message:`login successful`,
+
+        const jti = uuidv4();
+
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user, jti);
+        const tokenHash = await hashToken(refreshToken);
+
+        await RefreshSchema.create({
+            userId: user._id,
+            jti,
+            tokenHash,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+        })
+        res.cookie(`refreshToken`, refreshToken, {
+            httpOnly: true,
+            secure: process.env.SECURE_COOKIE === 'true', // was true, now conditional
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+        }); 
+        res.status(200).json({
+            message: `login successful`,
+            accessToken,
             userData: {
-                user: user._id, 
-                userName: user.userName, 
-                email: user.email 
+                user: user._id,
+                userName: user.userName,
+                email: user.email
             }
         })
-
-    } catch(error){
+    } catch (error) {
         console.error(`Error: ${error.message}`);
         res.status(500).json({
-            message:`Server Error`
+            message: `Server Error`
         })
     }
 }

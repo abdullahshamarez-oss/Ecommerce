@@ -5,6 +5,7 @@ const REF_TOKEN_EXP = process.env.REF_TOKEN_EXP || "7D";
 
 const jwt = require(`jsonwebtoken`);
 
+
 const generateAccessToken = (user) => {
     return jwt.sign({
         userId: user._id, role: user.role, tokenVersion: user.tokenVersion
