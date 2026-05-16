@@ -1,4 +1,5 @@
 require(`dotenv`).config();
+const cron = require(`./utils/cron.util`);
 const express = require(`express`);
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -10,7 +11,7 @@ app.use(express.json());
 
 connectDB();
 
-app.use(`/api/auth`,routes);
+app.use(`/api`,routes);
 app.get(`/`,(req,res)=>{
     res.json({message:"API is running"})
 })
